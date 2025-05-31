@@ -1,6 +1,7 @@
 import { loadAllAuthTokens } from '../utils/file.js';
 import { startMining, getCurrentMiningStatus, getMiningPoints } from '../services/miningApi.js';
 import { printMultiAccountTable } from '../cli/table.js';
+import { claimMining } from '../services/claimService.js';
 
 export async function runMultiAccountAutomation() {
   const tokens = await loadAllAuthTokens();
@@ -28,9 +29,9 @@ export async function runMultiAccountAutomation() {
       const currentStatus = await getCurrentMiningStatus(token);
       statusList[idx].Account = `#${idx + 1}`;
       statusList[idx].UID = (currentStatus && currentStatus.uid) ? currentStatus.uid : '-';
-      statusList[idx].Point = pointsData.point !== undefined ? pointsData.point : 'N/A';
-      statusList[idx].Score = pointsData.score !== undefined ? pointsData.score : 'N/A';
-      statusList[idx].Boost = pointsData.boost !== undefined ? pointsData.boost : 'N/A';
+      statusList[idx].Point = pointsData.point !== undefined ? parseFloat(pointsData.point).toFixed(2) : 'N/A';
+      statusList[idx].Score = pointsData.score !== undefined ? parseFloat(pointsData.score).toFixed(2) : 'N/A';
+      statusList[idx].Boost = pointsData.boost !== undefined ? parseFloat(pointsData.boost).toFixed(2) : 'N/A';
       if (currentStatus && !currentStatus.error && currentStatus.status === 1 && currentStatus.ended === 0) {
         const endTime = currentStatus.end;
         const currentTime = Date.now();
@@ -51,7 +52,22 @@ export async function runMultiAccountAutomation() {
         } else {
           statusList[idx]['Mining Status'] = 'Session Ended';
           statusList[idx]['Time Left'] = 'Expired';
-          statusList[idx]['Last Message'] = 'Session time expired. Restarting...';
+          statusList[idx]['Last Message'] = 'Session time expired. Claiming and restarting...';
+          try {
+            const extension = currentStatus.extension || '';
+            if (extension) {
+              await claimMining(extension, token);
+              statusList[idx]['Last Message'] = 'Claim success. Restarting session...';
+            } else {
+              statusList[idx]['Last Message'] = 'No extension found for claim.';
+            }
+          } catch (err) {
+            if (err.message && err.message.includes('412')) {
+              statusList[idx]['Last Message'] = 'Already claimed.';
+            } else {
+              statusList[idx]['Last Message'] = 'Claim failed: ' + err.message;
+            }
+          }
           const newSession = await startMining(token);
           if (newSession && newSession.end) {
             const newEndTime = newSession.end;
